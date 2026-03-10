@@ -1,126 +1,119 @@
-import { useState, useEffect, useReducer, FormEvent } from 'react'
+import { useState, useEffect } from 'react'
 import './App.css'
-
-const STORAGE_KEY = 'api_key'
+import Dashboard from './Dashboard'
 
 interface Item {
-  id: number
-  type: string
-  title: string
-  created_at: string
+  id: string
+  name: string
+  description: string
 }
 
-type FetchState =
-  | { status: 'idle' }
-  | { status: 'loading' }
-  | { status: 'success'; items: Item[] }
-  | { status: 'error'; message: string }
-
-type FetchAction =
-  | { type: 'fetch_start' }
-  | { type: 'fetch_success'; data: Item[] }
-  | { type: 'fetch_error'; message: string }
-
-function fetchReducer(_state: FetchState, action: FetchAction): FetchState {
-  switch (action.type) {
-    case 'fetch_start':
-      return { status: 'loading' }
-    case 'fetch_success':
-      return { status: 'success', items: action.data }
-    case 'fetch_error':
-      return { status: 'error', message: action.message }
-  }
-}
-
-function App() {
-  const [token, setToken] = useState(
-    () => localStorage.getItem(STORAGE_KEY) ?? '',
-  )
-  const [draft, setDraft] = useState('')
-  const [fetchState, dispatch] = useReducer(fetchReducer, { status: 'idle' })
+function Items({ apiKey }: { apiKey: string }) {
+  const [items, setItems] = useState<Item[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const apiTarget = import.meta.env.VITE_API_TARGET
 
   useEffect(() => {
-    if (!token) return
+    if (!apiKey) return
 
-    dispatch({ type: 'fetch_start' })
+    const fetchItems = async () => {
+      setLoading(true)
+      setError('')
+      try {
+        const response = await fetch(`${apiTarget}/items`, {
+          headers: {
+            'Authorization': `Bearer ${apiKey}`
+          }
+        })
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        const data: Item[] = await response.json()
+        setItems(data)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to fetch items')
+      } finally {
+        setLoading(false)
+      }
+    }
 
-    fetch('/items/', {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        return res.json()
-      })
-      .then((data: Item[]) => dispatch({ type: 'fetch_success', data }))
-      .catch((err: Error) =>
-        dispatch({ type: 'fetch_error', message: err.message }),
-      )
-  }, [token])
+    fetchItems()
+  }, [apiKey, apiTarget])
 
-  function handleConnect(e: FormEvent) {
-    e.preventDefault()
-    const trimmed = draft.trim()
-    if (!trimmed) return
-    localStorage.setItem(STORAGE_KEY, trimmed)
-    setToken(trimmed)
-  }
-
-  function handleDisconnect() {
-    localStorage.removeItem(STORAGE_KEY)
-    setToken('')
-    setDraft('')
-  }
-
-  if (!token) {
-    return (
-      <form className="token-form" onSubmit={handleConnect}>
-        <h1>API Key</h1>
-        <p>Enter your API key to connect.</p>
-        <input
-          type="password"
-          placeholder="Token"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-        />
-        <button type="submit">Connect</button>
-      </form>
-    )
-  }
+  if (!apiKey) return <p>Please enter your API key above</p>
+  if (loading) return <p>Loading items...</p>
+  if (error) return <p className="error">Error: {error}</p>
 
   return (
     <div>
-      <header className="app-header">
-        <h1>Items</h1>
-        <button className="btn-disconnect" onClick={handleDisconnect}>
-          Disconnect
-        </button>
+      <h2>Items</h2>
+      {items.length === 0 ? (
+        <p>No items found</p>
+      ) : (
+        <pre>{JSON.stringify(items, null, 2)}</pre>
+      )}
+    </div>
+  )
+}
+
+type Page = 'items' | 'dashboard'
+
+function App() {
+  const [apiKey, setApiKey] = useState('')
+  const [currentPage, setCurrentPage] = useState<Page>('items')
+
+  useEffect(() => {
+    const savedKey = localStorage.getItem('api_key')
+    if (savedKey) {
+      setApiKey(savedKey)
+    }
+  }, [])
+
+  const handleApiKeyChange = (key: string) => {
+    setApiKey(key)
+    if (key) {
+      localStorage.setItem('api_key', key)
+    } else {
+      localStorage.removeItem('api_key')
+    }
+  }
+
+  return (
+    <div className="app">
+      <header>
+        <h1>Learning Management Service</h1>
+        <div className="api-key-input">
+          <label htmlFor="api-key">API Key: </label>
+          <input
+            id="api-key"
+            type="password"
+            value={apiKey}
+            onChange={(e) => handleApiKeyChange(e.target.value)}
+            placeholder="Enter your API key"
+          />
+        </div>
+        <nav className="nav">
+          <button
+            onClick={() => setCurrentPage('items')}
+            className={currentPage === 'items' ? 'active' : ''}
+          >
+            Items
+          </button>
+          <button
+            onClick={() => setCurrentPage('dashboard')}
+            className={currentPage === 'dashboard' ? 'active' : ''}
+          >
+            Dashboard
+          </button>
+        </nav>
       </header>
 
-      {fetchState.status === 'loading' && <p>Loading...</p>}
-      {fetchState.status === 'error' && <p>Error: {fetchState.message}</p>}
-
-      {fetchState.status === 'success' && (
-        <table>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>ItemType</th>
-              <th>Title</th>
-              <th>Created at</th>
-            </tr>
-          </thead>
-          <tbody>
-            {fetchState.items.map((item) => (
-              <tr key={item.id}>
-                <td>{item.id}</td>
-                <td>{item.type}</td>
-                <td>{item.title}</td>
-                <td>{item.created_at}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <main>
+        {currentPage === 'items' ? (
+          <Items apiKey={apiKey} />
+        ) : (
+          <Dashboard />
+        )}
+      </main>
     </div>
   )
 }
